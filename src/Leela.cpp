@@ -44,7 +44,7 @@ static void license_blurb() {
     );
 }
 
-static void parse_commandline(int argc, char *argv[], bool & gtp_mode) {
+static void parse_commandline(int argc, char *argv[], bool & gtp_mode, int &time) {
     namespace po = boost::program_options;
     // Declare the supported options.
     po::options_description v_desc("Allowed options");
@@ -81,6 +81,7 @@ static void parse_commandline(int argc, char *argv[], bool & gtp_mode) {
         ("puct", po::value<float>())
         ("softmax_temp", po::value<float>())
 #endif
+        ("time", po::value<int>()->default_value(1200))
         ;
     // These won't be shown, we use them to catch incorrect usage of the
     // command line.
@@ -150,6 +151,10 @@ static void parse_commandline(int argc, char *argv[], bool & gtp_mode) {
         gtp_mode = true;
     }
 
+    if (vm.count("time")) {
+        time = vm["time"].as<int>();
+    }
+
     if (vm.count("threads")) {
         int num_threads = vm["threads"].as<int>();
         if (num_threads > cfg_num_threads) {
@@ -210,6 +215,7 @@ static void parse_commandline(int argc, char *argv[], bool & gtp_mode) {
 #ifdef USE_OPENCL
     if (vm.count("gpu")) {
         cfg_gpus = vm["gpu"].as<std::vector<int> >();
+        std::cout << "GPU device number:" << cfg_gpus.size() << std::endl;
     }
 
     if (vm.count("rowtiles")) {
@@ -226,11 +232,12 @@ static void parse_commandline(int argc, char *argv[], bool & gtp_mode) {
 
 int main (int argc, char *argv[]) {
     bool gtp_mode = false;
+    int time = 1200;
     std::string input;
 
     // Set up engine parameters
     GTP::setup_default_parameters();
-    parse_commandline(argc, argv, gtp_mode);
+    parse_commandline(argc, argv, gtp_mode, time);
 
     // Disable IO buffering as much as possible
     std::cout.setf(std::ios::unitbuf);
@@ -266,6 +273,7 @@ int main (int argc, char *argv[]) {
     /* set board limits */
     float komi = 7.5;
     maingame->init_game(19, komi);
+    maingame->set_timecontrol(time * 100, 60 * 100, 5, 0);
 
     for(;;) {
         if (!gtp_mode) {
