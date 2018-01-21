@@ -579,7 +579,7 @@ void Management::uploadResult(const QMap<QString,QString> &r, const QMap<QString
         saveCurlCmdLine(prog_cmdline, r["file"]);
         return;
     }
-    cleanupFiles(r["file"]);
+    // cleanupFiles(r["file"]);
 }
 
 
@@ -631,5 +631,5 @@ void Management::uploadData(const QMap<QString,QString> &r, const QMap<QString,Q
         saveCurlCmdLine(prog_cmdline, r["file"]);
         return;
     }
-    cleanupFiles(r["file"]);
+    // cleanupFiles(r["file"]);
 }

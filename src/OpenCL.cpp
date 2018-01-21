@@ -30,6 +30,7 @@
 #include <stdexcept>
 
 #include <cstdio>
+// #include <chrono>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -664,6 +665,36 @@ static std::string trim(std::string trim_me) {
     return trim_me;
 }
 
+std::string exec(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::shared_ptr<FILE> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) throw std::runtime_error("popen() failed!");
+    while (!feof(pipe.get())) {
+        if (fgets(buffer.data(), 128, pipe.get()) != nullptr)
+            result += buffer.data();
+    }
+    return result;
+}
+
+int best_id(){
+    std::stringstream res;
+    res.str(exec("./gpuload"));
+    std::string segment;
+    std::vector<int> usage;
+    std::vector<int> ids;
+    while(std::getline(res, segment, '\n')){
+        usage.push_back(std::stoi(segment));
+    }
+    int min = *std::min_element(usage.begin(), usage.end());
+    for (unsigned int i = 0; i < usage.size(); i++) {
+        if (usage.at(i) == min)
+            ids.push_back(i);
+    }
+    std::random_shuffle(ids.begin(), ids.end());
+    return ids.at(0);
+}
+
 void OpenCL::initialize(void) {
     std::vector<cl::Platform> platforms;
     try {
@@ -677,76 +708,51 @@ void OpenCL::initialize(void) {
     cl::Platform best_platform;
     cl::Device best_device;
     std::string best_vendor;
-    int best_score = 0;
+    // int best_score = 0;
     bool found_device = false;
-    int id = 0;
+    // int id = 0;
 
     myprintf("Detected %d OpenCL platforms\n", platforms.size());
 
-    for (const auto &p : platforms) {
-        std::string platvers = p.getInfo<CL_PLATFORM_VERSION>();
-        std::string platprof = p.getInfo<CL_PLATFORM_PROFILE>();
-        std::string platname = p.getInfo<CL_PLATFORM_NAME>();
-        std::string platvend = p.getInfo<CL_PLATFORM_VENDOR>();
-        myprintf("Platform version: %s\n", platvers.c_str());;
-        myprintf("Platform profile: %s\n", platprof.c_str());
-        myprintf("Platform name:    %s\n", platname.c_str());
-        myprintf("Platform vendor:  %s\n", platvend.c_str());
+	for (const auto &p : platforms) {
+		std::string platvers = p.getInfo<CL_PLATFORM_VERSION>();
+		std::string platprof = p.getInfo<CL_PLATFORM_PROFILE>();
+		std::string platname = p.getInfo<CL_PLATFORM_NAME>();
+		std::string platvend = p.getInfo<CL_PLATFORM_VENDOR>();
+		myprintf("Platform version: %s\n", platvers.c_str());;
+		myprintf("Platform profile: %s\n", platprof.c_str());
+		myprintf("Platform name:    %s\n", platname.c_str());
+		myprintf("Platform vendor:  %s\n", platvend.c_str());
 
-        std::istringstream versstream(platvers);
-        std::string tmp;
-        float opencl_version;
-        versstream >> tmp >> opencl_version;
+		std::istringstream versstream(platvers);
+		std::string tmp;
+		float opencl_version;
+		versstream >> tmp >> opencl_version;
 
-        std::vector<cl::Device> devices;
-        try {
-            p.getDevices(CL_DEVICE_TYPE_ALL, &devices);
-        } catch (const cl::Error &e) {
-            myprintf("Error getting device(s): %s: %d\n", e.what(), e.err());
-            devices.clear();
-        }
-        for (auto& d : devices) {
-            myprintf("Device ID:     %d\n", id);
-            myprintf("Device name:   %s\n",
-                     trim(d.getInfo<CL_DEVICE_NAME>()).c_str());
-            myprintf("Device type:   %s\n",
-                     opencl_dev_type_to_string(d.getInfo<CL_DEVICE_TYPE>()).c_str());
-            myprintf("Device vendor: %s\n",
-                      d.getInfo<CL_DEVICE_VENDOR>().c_str());
-            myprintf("Device driver: %s\n",
-                      d.getInfo<CL_DRIVER_VERSION>().c_str());
-            myprintf("Device speed:  %u MHz\n",
-                      d.getInfo<CL_DEVICE_MAX_CLOCK_FREQUENCY>());
-            myprintf("Device cores:  %u CU\n",
-                      d.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>());
+		std::vector<cl::Device> devices;
+		try {
+			p.getDevices(CL_DEVICE_TYPE_ALL, &devices);
+		} catch (const cl::Error &e) {
+			myprintf("Error getting device(s): %s: %d\n", e.what(), e.err());
+			devices.clear();
+		}
 
-            // assign score, try to find best device
-            int this_score = 0;
-            std::string this_vendor = d.getInfo<CL_DEVICE_VENDOR>();
-            this_score += 1000 * boost::icontains(this_vendor, "advanced micro devices");
-            this_score += 1000 * boost::icontains(this_vendor, "amd");
-            this_score += 1000 * boost::icontains(this_vendor, "nvidia");
-            this_score +=  500 * boost::icontains(this_vendor, "intel");
-            this_score +=  100 * (d.getInfo<CL_DEVICE_TYPE>() == CL_DEVICE_TYPE_GPU);
-            this_score +=  opencl_version * 10;
-            myprintf("Device score:  %d\n", this_score);
+        // int now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        myprintf("total devices number: %d\n", devices.size());
+        cl::Device d = devices.at(best_id());
 
-            bool preferred = std::find(cfg_gpus.cbegin(), cfg_gpus.cend(), id) != cfg_gpus.cend();
+        myprintf("Device name:   %s\n", trim(d.getInfo<CL_DEVICE_NAME>()).c_str());
+        myprintf("Device type:   %s\n", opencl_dev_type_to_string(d.getInfo<CL_DEVICE_TYPE>()).c_str());
+        myprintf("Device vendor: %s\n", d.getInfo<CL_DEVICE_VENDOR>().c_str());
+        myprintf("Device driver: %s\n", d.getInfo<CL_DRIVER_VERSION>().c_str());
+        myprintf("Device speed:  %u MHz\n", d.getInfo<CL_DEVICE_MAX_CLOCK_FREQUENCY>());
+        myprintf("Device cores:  %u CU\n", d.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>());
 
-            if ((this_score > best_score) || preferred) {
-                best_version = opencl_version;
-                best_platform = p;
-                best_device = d;
-                if (preferred) {
-                    best_score = std::numeric_limits<decltype(best_score)>::max();
-                } else {
-                    best_score = this_score;
-                }
-                found_device = true;
-            }
-            id++;
-        }
-    }
+        best_version = opencl_version;
+        best_platform = p;
+        best_device = d;
+        found_device = true;
+	}
 
     if (!found_device) {
         throw std::runtime_error("No suitable OpenCL device found.");

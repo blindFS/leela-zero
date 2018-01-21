@@ -25,6 +25,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "OpenCL.h"
 #include "FastBoard.h"
 #include "FullBoard.h"
 #include "GTP.h"
