@@ -17,6 +17,7 @@
 #    along with Leela Zero.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys
+import os
 import glob
 import gzip
 import random
@@ -163,9 +164,6 @@ class ChunkParser:
             for r in self.readers:
                 yield r.recv_bytes();
 
-def get_chunks(data_prefix):
-    return glob.glob(data_prefix + "*.gz")
-
 
 #
 # Tests to check that records can round-trip successfully
@@ -257,11 +255,20 @@ def benchmark(parser):
         print("{} pos/sec {} secs".format( 10000. / (end - start), (end - start)))
 
 
-def iter_from_chunks(chunks):
-    parser = ChunkParser(chunks)
+def latest_data_iter(data_size=leela_conf.DATA_SIZE):
+    chunks = glob.glob(leela_conf.DATA_DIR + "/*.txt*.gz")
+    def file_ctime(file):
+        stat_file = os.stat(file)
+        last_access_time = stat_file.st_ctime
+        return last_access_time
+    chunks= sorted(chunks, key=lambda x: file_ctime(x), reverse=True)
+    size = min(data_size, len(chunks))
+    chunks = chunks[0: size]
+    print("Found {0} latest chunks".format(size))
 
-    run_test(parser)
-    #benchmark(parser)
+    parser = ChunkParser(chunks)
+    # run_test(parser)
+    # benchmark(parser)
 
     dataset = tf.data.Dataset.from_generator(
         parser.parse_chunk, output_types=(tf.string))
@@ -269,22 +276,12 @@ def iter_from_chunks(chunks):
     dataset = dataset.map(_parse_function)
     dataset = dataset.batch(leela_conf.BATCH_SIZE)
     dataset = dataset.prefetch(16)
-    return dataset.make_one_shot_iterator()
+    iterator = dataset.make_one_shot_iterator()
+    return [iterator.get_next() for _ in range(leela_conf.GPU_NUM)]
 
 
 def main(args):
-
-    train_data_prefix = args.pop(0)
-
-    chunks = get_chunks(train_data_prefix)
-    print("Found {0} chunks".format(len(chunks)))
-
-    if not chunks:
-        return
-
-    it = iter_from_chunks(chunks)
-    next_batch = [it.get_next() for _ in range(leela_conf.GPU_NUM)]
-
+    next_batch = latest_data_iter()
     tfprocess = TFProcess(next_batch)
     if args:
         restore_file = args.pop(0)
@@ -292,7 +289,9 @@ def main(args):
         tfprocess.restore(restore_file)
     print("Training starts ....")
     while True:
-        tfprocess.process()
+        change_data = tfprocess.process()
+        if change_data:
+            tfprocess.next_batch = latest_data_iter()
 
 if __name__ == "__main__":
     main(sys.argv[1:])

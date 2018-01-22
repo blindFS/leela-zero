@@ -3,6 +3,7 @@ import tensorflow as tf
 import os
 import sys
 from tfprocess import TFProcess
+from config import leela_conf
 
 with open(sys.argv[1], 'r') as f:
     weights = []
@@ -32,6 +33,6 @@ x = [[
 
 tfprocess = TFProcess(x)
 tfprocess.replace_weights(weights)
-path = os.path.join(os.getcwd(), "leelaz-model")
+path = os.path.join(leela_conf.SAVE_DIR, "leelaz-model")
 print("saved to: ", path)
 save_path = tfprocess.saver.save(tfprocess.session, path, global_step=0)

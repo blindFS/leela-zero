@@ -81,7 +81,7 @@ class TFProcess:
         with tf.device('/cpu:0'):
             self.session = tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True,
-                gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5)))
+                gpu_options=tf.GPUOptions(allow_growth=True)))
 
             # For exporting
             self.weights = []
@@ -217,6 +217,54 @@ class TFProcess:
         print("Restoring from {0}".format(file))
         self.saver.restore(self.session, file)
 
+    def save(self, steps, path):
+        save_path = self.saver.save(self.session, path, global_step=steps)
+        print("Model saved in file: {}".format(save_path))
+        leela_path = path + "-" + str(steps) + ".txt"
+        self.save_leelaz_weights(leela_path)
+        print("Leela weights saved to {}".format(leela_path))
+        return save_path
+    
+    def info(self, steps):
+        time_end = time.time()
+        speed = 0
+        if self.time_start:
+            elapsed = time_end - self.time_start
+            speed = leela_conf.BATCH_SIZE * (100.0 / elapsed)
+        avg_policy_loss = np.mean(self.avg_policy_loss or [0])
+        avg_mse_loss = np.mean(self.avg_mse_loss or [0])
+        avg_reg_term = np.mean(self.avg_reg_term or [0])
+        print("step {}, policy={:g} mse={:g} reg={:g} total={:g} ({:g} pos/s)".format(
+            steps, avg_policy_loss, avg_mse_loss, avg_reg_term,
+            avg_policy_loss + avg_mse_loss + avg_reg_term,
+            speed))
+        train_summaries = tf.Summary(value=[
+            tf.Summary.Value(tag="Policy Loss", simple_value=avg_policy_loss),
+            tf.Summary.Value(tag="MSE Loss", simple_value=avg_mse_loss)])
+        self.train_writer.add_summary(train_summaries, steps)
+        self.time_start = time_end
+        self.avg_policy_loss, self.avg_mse_loss, self.avg_reg_term = [], [], []
+
+    def eval(self, steps):
+        sum_accuracy = 0
+        sum_mse = 0
+        for _ in range(0, 10):
+            train_accuracy, train_mse, _ = self.session.run(
+                [self.accuracy, self.mse_loss, self.next_batch],
+                feed_dict={self.training: False})
+            sum_accuracy += train_accuracy
+            sum_mse += train_mse
+        sum_accuracy /= 10.0
+        # Additionally rescale to [0, 1] so divide by 4
+        sum_mse /= (4.0 * 10.0)
+        test_summaries = tf.Summary(value=[
+            tf.Summary.Value(tag="Accuracy", simple_value=sum_accuracy),
+            tf.Summary.Value(tag="MSE Loss", simple_value=sum_mse)])
+        self.test_writer.add_summary(test_summaries, steps)
+        print("step {}, training accuracy={:g}%, mse={:g}".format(
+            steps, sum_accuracy*100.0, sum_mse))
+        self.save(steps, os.path.join(leela_conf.SAVE_DIR, "leelaz-model"))
+
     def process(self):
         # Run training for this batch
         policy_loss, mse_loss, reg_term, _, _ = self.session.run(
@@ -233,49 +281,12 @@ class TFProcess:
         self.avg_mse_loss.append(mse_loss)
         self.avg_reg_term.append(reg_term)
         if steps % leela_conf.INFO_STEP_INTERVAL == 0:
-            time_end = time.time()
-            speed = 0
-            if self.time_start:
-                elapsed = time_end - self.time_start
-                speed = leela_conf.BATCH_SIZE * (100.0 / elapsed)
-            avg_policy_loss = np.mean(self.avg_policy_loss or [0])
-            avg_mse_loss = np.mean(self.avg_mse_loss or [0])
-            avg_reg_term = np.mean(self.avg_reg_term or [0])
-            print("step {}, policy={:g} mse={:g} reg={:g} total={:g} ({:g} pos/s)".format(
-                steps, avg_policy_loss, avg_mse_loss, avg_reg_term,
-                avg_policy_loss + avg_mse_loss + avg_reg_term,
-                speed))
-            train_summaries = tf.Summary(value=[
-                tf.Summary.Value(tag="Policy Loss", simple_value=avg_policy_loss),
-                tf.Summary.Value(tag="MSE Loss", simple_value=avg_mse_loss)])
-            self.train_writer.add_summary(train_summaries, steps)
-            self.time_start = time_end
-            self.avg_policy_loss, self.avg_mse_loss, self.avg_reg_term = [], [], []
+            self.info(steps)
         # Ideally this would use a seperate dataset and so on...
         if steps % leela_conf.EVAL_STEP_INTERVAL == 0:
-            sum_accuracy = 0
-            sum_mse = 0
-            for _ in range(0, 10):
-                train_accuracy, train_mse, _ = self.session.run(
-                    [self.accuracy, self.mse_loss, self.next_batch],
-                    feed_dict={self.training: False})
-                sum_accuracy += train_accuracy
-                sum_mse += train_mse
-            sum_accuracy /= 10.0
-            # Additionally rescale to [0, 1] so divide by 4
-            sum_mse /= (4.0 * 10.0)
-            test_summaries = tf.Summary(value=[
-                tf.Summary.Value(tag="Accuracy", simple_value=sum_accuracy),
-                tf.Summary.Value(tag="MSE Loss", simple_value=sum_mse)])
-            self.test_writer.add_summary(test_summaries, steps)
-            print("step {}, training accuracy={:g}%, mse={:g}".format(
-                steps, sum_accuracy*100.0, sum_mse))
-            path = os.path.join(os.getcwd(), "leelaz-model")
-            save_path = self.saver.save(self.session, path, global_step=steps)
-            print("Model saved in file: {}".format(save_path))
-            leela_path = path + "-" + str(steps) + ".txt"
-            self.save_leelaz_weights(leela_path)
-            print("Leela weights saved to {}".format(leela_path))
+            self.eval(steps)
+            return True
+        return False
 
     def save_leelaz_weights(self, filename):
         with open(filename, "w") as file:
@@ -384,8 +395,8 @@ class TFProcess:
 
     def construct_net(self, planes):
         # Network structure
-        RESIDUAL_FILTERS = 128
-        RESIDUAL_BLOCKS = 6
+        RESIDUAL_FILTERS = leela_conf.RESIDUAL_FILTERS
+        RESIDUAL_BLOCKS = leela_conf.RESIDUAL_BLOCKS
 
         # NCHW format
         # batch, 18 channels, 19 x 19
