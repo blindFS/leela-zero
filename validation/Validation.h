@@ -66,6 +66,7 @@ public:
                const QString& firstNet,
                const QString& secondNet,
                const QString& keep,
+               const QString& logFile,
                QMutex* mutex);
     ~Validation() = default;
     void startGames();
@@ -86,6 +87,8 @@ private:
     QString m_firstNet;
     QString m_secondNet;
     QString m_keepPath;
+    QString m_logFile;
+    void writeLog(bool firstBetter);
     void quitThreads();
 };
 

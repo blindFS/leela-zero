@@ -18,6 +18,7 @@
 
 #include "Validation.h"
 #include <QFile>
+#include <QTextStream>
 
 using VersionTuple = std::tuple<int, int>;
 // Minimal Leela Zero version we expect to see
@@ -118,6 +119,7 @@ Validation::Validation(const int gpus,
                        const QString& firstNet,
                        const QString& secondNet,
                        const QString& keep,
+                       const QString& logFile,
                        QMutex* mutex) :
     m_mainMutex(mutex),
     m_syncMutex(),
@@ -127,8 +129,11 @@ Validation::Validation(const int gpus,
     m_gpusList(gpuslist),
     m_firstNet(firstNet),
     m_secondNet(secondNet),
-    m_keepPath(keep) {
-    m_statistic.initialize(0.0, 35.0, 0.05, 0.05);
+    m_keepPath(keep),
+    m_logFile(logFile)
+{
+    m_statistic.initialize(0.0, 35.0, 0.5, 0.5);
+    // m_statistic.initialize(0.0, 35.0, 0.05, 0.05);
     m_statistic.addGameResult(Sprt::Draw);
 }
 
@@ -185,6 +190,7 @@ void Validation::getResult(Sprt::GameResult result, int net_one_color) {
             <<  ((status.result ==  Sprt::AcceptH0) ? "worse " : "better ")
             << "than the second" << endl;
         m_results.printResults(m_firstNet, m_secondNet);
+        writeLog(status.result ==  Sprt::AcceptH1);
         m_mainMutex->unlock();
     } else {
         QTextStream(stdout)
@@ -196,6 +202,14 @@ void Validation::getResult(Sprt::GameResult result, int net_one_color) {
             << " Upper Bound " << status.uBound << endl;
     }
     m_syncMutex.unlock();
+}
+
+void Validation::writeLog(bool firstBetter) {
+    QFile log(m_logFile);
+    if (log.open(QIODevice::WriteOnly | QIODevice::Append)) {
+        QTextStream stream(&log);
+        stream << firstBetter << "\t" << m_firstNet << "\t" << m_secondNet << endl;
+    }
 }
 
 void Validation::quitThreads() {

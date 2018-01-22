@@ -61,11 +61,16 @@ int main(int argc, char *argv[]) {
         {"k", "keepSgf" },
             "Save SGF files after each self-play game.",
             "output directory");
+    QCommandLineOption logOption(
+        {"l", "logfile" },
+            "Append results to which file.",
+            "filename");
 
     parser.addOption(gamesNumOption);
     parser.addOption(gpusOption);
     parser.addOption(networkOption);
     parser.addOption(keepSgfOption);
+    parser.addOption(logOption);
 
     // Process the actual command line arguments given by the user
     parser.process(app);
@@ -94,7 +99,8 @@ int main(int argc, char *argv[]) {
     QMutex mutex;
     Validation validate(gpusNum, gamesNum, gpusList,
                         netList.at(0), netList.at(1),
-                        parser.value(keepSgfOption), &mutex);
+                        parser.value(keepSgfOption),
+                        parser.value(logOption), &mutex);
     validate.startGames();
     mutex.lock();
     cerr.flush();

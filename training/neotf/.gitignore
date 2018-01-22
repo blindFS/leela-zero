@@ -3,3 +3,6 @@ leelaz-model*
 __pycache__/
 log
 checkpoint
+save/
+data/
+*.pyc
