@@ -1,2 +1,2 @@
 #!/bin/bash
-./neogtp -u 0 -g 1 -l http://localhost:5000/
+./neogtp -u 1 -g 2 -l http://localhost:5000/

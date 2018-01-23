@@ -19,6 +19,7 @@
 #include "Validation.h"
 #include <QFile>
 #include <QTextStream>
+#include <QCryptographicHash>
 
 using VersionTuple = std::tuple<int, int>;
 // Minimal Leela Zero version we expect to see
@@ -101,8 +102,9 @@ void ValidationWorker::init(const QString& gpuIndex,
                             const QString& firstNet,
                             const QString& secondNet,
                             const QString& keep,
+                            const QString& playOuts,
                             const int expected) {
-    m_option = " -g  -p 1600 --noponder -t 1 -q -d -r 0 -w ";
+    m_option = " -g  -p " + playOuts + " --noponder -t 1 -q -d -r 0 -w ";
     if (!gpuIndex.isEmpty()) {
         m_option.prepend(" --gpu=" + gpuIndex + " ");
     }
@@ -115,6 +117,8 @@ void ValidationWorker::init(const QString& gpuIndex,
 
 Validation::Validation(const int gpus,
                        const int games,
+                       const QString& playOuts,
+                       const float sigLevel,
                        const QStringList& gpuslist,
                        const QString& firstNet,
                        const QString& secondNet,
@@ -126,14 +130,15 @@ Validation::Validation(const int gpus,
     m_gamesThreads(gpus*games),
     m_games(games),
     m_gpus(gpus),
+    m_playOuts(playOuts),
+    m_sigLevel(sigLevel),
     m_gpusList(gpuslist),
     m_firstNet(firstNet),
     m_secondNet(secondNet),
     m_keepPath(keep),
     m_logFile(logFile)
 {
-    m_statistic.initialize(0.0, 35.0, 0.5, 0.5);
-    // m_statistic.initialize(0.0, 35.0, 0.05, 0.05);
+    m_statistic.initialize(0.0, 35.0, m_sigLevel, m_sigLevel);
     m_statistic.addGameResult(Sprt::Draw);
 }
 
@@ -164,7 +169,7 @@ void Validation::startGames() {
             } else {
                 myGpu = m_gpusList.at(gpu);
             }
-            m_gamesThreads[thread_index].init(myGpu, n1, n2, m_keepPath, expected);
+            m_gamesThreads[thread_index].init(myGpu, n1, n2, m_keepPath, m_playOuts, expected);
             m_gamesThreads[thread_index].start();
         }
     }
@@ -190,7 +195,7 @@ void Validation::getResult(Sprt::GameResult result, int net_one_color) {
             <<  ((status.result ==  Sprt::AcceptH0) ? "worse " : "better ")
             << "than the second" << endl;
         m_results.printResults(m_firstNet, m_secondNet);
-        writeLog(status.result ==  Sprt::AcceptH1);
+        writeLog(status, wdl);
         m_mainMutex->unlock();
     } else {
         QTextStream(stdout)
@@ -204,12 +209,28 @@ void Validation::getResult(Sprt::GameResult result, int net_one_color) {
     m_syncMutex.unlock();
 }
 
-void Validation::writeLog(bool firstBetter) {
+void Validation::writeLog(Sprt::Status status, std::tuple<int, int, int> wdl) {
+    bool firstBetter = status.result ==  Sprt::AcceptH1;
     QFile log(m_logFile);
     if (log.open(QIODevice::WriteOnly | QIODevice::Append)) {
         QTextStream stream(&log);
-        stream << firstBetter << "\t" << m_firstNet << "\t" << m_secondNet << endl;
+        stream << firstBetter << "\t"
+            << std::get<0>(wdl) << "\t"
+            << std::get<2>(wdl) << "\t"
+            << fileHash(m_firstNet) << "\t"
+            << fileHash(m_secondNet) << endl;
     }
+}
+
+QString Validation::fileHash(QString name){
+    QFile f(name);
+    QString result = "unknown";
+    if (f.open(QFile::ReadOnly)) {
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        if (hash.addData(&f))
+            result = hash.result().toHex();
+    }
+    return result;
 }
 
 void Validation::quitThreads() {

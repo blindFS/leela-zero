@@ -92,12 +92,20 @@ double BayesElo::scale() const
 
 SprtProbability::SprtProbability(int wins, int losses, int draws)
 {
-	Q_ASSERT(wins > 0 && losses > 0 && draws > 0);
+	Q_ASSERT(wins > 0 || losses > 0 || draws > 0);
 
 	const int count = wins + losses + draws;
 
+    const double epsilon = 1e-4;
 	m_pWin = double(wins) / count;
 	m_pLoss = double(losses) / count;
+    if (wins > losses) {
+        m_pWin -= epsilon;
+        m_pLoss += epsilon;
+    } else {
+        m_pWin += epsilon;
+        m_pLoss -= epsilon;
+    }
 	m_pDraw = 1.0 - m_pWin - m_pLoss;
 }
 
@@ -110,9 +118,9 @@ SprtProbability::SprtProbability(const BayesElo& b)
 
 bool SprtProbability::isValid() const
 {
-	return 0.0 < m_pWin && m_pWin < 1.0 &&
-	       0.0 < m_pLoss && m_pLoss < 1.0 &&
-	       0.0 < m_pDraw && m_pDraw < 1.0;
+	return 0.0 <= m_pWin && m_pWin <= 1.0&&
+	       0.0 <= m_pLoss && m_pLoss <= 1.0&&
+	       0.0 <= m_pDraw && m_pDraw <= 1.0;
 }
 
 double SprtProbability::pWin() const
@@ -167,7 +175,7 @@ Sprt::Status Sprt::status() const
 		0.0
 	};
 
-	if (m_wins <= 0 || m_losses <= 0 || m_draws <= 0)
+	if (m_wins + m_losses + m_draws < 4)
 		return status;
 
 	// Estimate draw_elo out of sample

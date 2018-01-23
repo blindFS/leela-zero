@@ -25,9 +25,13 @@ import math
 import multiprocessing as mp
 import numpy as np
 import time
+import subprocess
 import tensorflow as tf
 from tfprocess import TFProcess
+from shutil import copy2
+from copy import copy
 from config import leela_conf
+from net_to_model import get_weights
 
 # 16 planes, 1 stm, 1 x 362 probs, 1 winner = 19 lines
 DATA_ITEM_LINES = 16 + 1 + 1 + 1
@@ -50,6 +54,11 @@ def remap_vertex(vertex, symmetry):
 
 class ChunkParser:
     def __init__(self, chunks):
+        manager = mp.Manager()
+        self.shared_data = manager.dict()
+        self.shared_data['chunks'] = chunks
+        self.shared_data['refresh'] = False
+        self.shared_data['refreshed_workers'] = set()
         # Build probility reflection tables. The last element is 'pass' and is identity mapped.
         self.prob_reflection_table = [[remap_vertex(vertex, sym) for vertex in range(361)]+[361] for sym in range(8)]
         # Build full 16-plane reflection tables.
@@ -64,13 +73,25 @@ class ChunkParser:
 
         # Start worker processes, leave 1 for TensorFlow
         workers = max(1, mp.cpu_count() - 1)
+        self.workers = workers
         print("Using {} worker processes.".format(workers))
         self.readers = []
+        self.writers = []
+        self.tasks = []
         for _ in range(workers):
             read, write = mp.Pipe(False)
-            mp.Process(target=self.task,
-                       args=(chunks, write)).start()
+            task_p = mp.Process(target=self.task,
+                                args=(self.shared_data, write))
+            task_p.start()
+            self.tasks.append(task_p)
             self.readers.append(read)
+            self.writers.append(write)
+
+    def terminate(self):
+        for task_p in self.tasks:
+            task_p.terminate()
+        for pipe in self.readers + self.writers:
+            pipe.close()
 
     def convert_train_data(self, text_item, symmetry):
         """
@@ -141,14 +162,27 @@ class ChunkParser:
             'winner' : tf.train.Feature(float_list=tf.train.FloatList(value=[winner]))}))
         return True, example.SerializeToString()
 
-    def task(self, chunks, writer):
+    def task(self, shared_data, writer):
+        pid = os.getpid()
         while True:
+            chunks = copy(shared_data['chunks'])
             random.shuffle(chunks)
             for chunk in chunks:
+                pid_set = shared_data['refreshed_workers']
+                if shared_data['refresh'] and pid not in pid_set:
+                    pid_set.add(pid)
+                    shared_data['refreshed_workers'] = pid_set
+                    if len(pid_set) == self.workers:
+                        print("--------------Data changed-------------")
+                        shared_data['refresh'] = False
+                        shared_data['refreshed_workers'] = set()
+                    break
                 with gzip.open(chunk, 'r') as chunk_file:
                     file_content = chunk_file.readlines()
                     item_count = len(file_content) // DATA_ITEM_LINES
                     for item_idx in range(item_count):
+                        if shared_data['refresh']:
+                            break
                         pick_offset = item_idx * DATA_ITEM_LINES
                         item = file_content[pick_offset:pick_offset + DATA_ITEM_LINES]
                         str_items = [str(line, 'ascii') for line in item]
@@ -163,6 +197,11 @@ class ChunkParser:
         while True:
             for r in self.readers:
                 yield r.recv_bytes();
+
+    def chunk_switch(self, chunks):
+        self.shared_data['chunks'] = chunks
+        self.shared_data['refresh'] = True
+        self.shared_data['refreshed_workers'] = set()
 
 
 #
@@ -255,7 +294,7 @@ def benchmark(parser):
         print("{} pos/sec {} secs".format( 10000. / (end - start), (end - start)))
 
 
-def latest_data_iter(data_size=leela_conf.DATA_SIZE):
+def latest_chunks(data_size=leela_conf.DATA_SIZE):
     chunks = glob.glob(leela_conf.DATA_DIR + "/*.txt*.gz")
     def file_ctime(file):
         stat_file = os.stat(file)
@@ -265,11 +304,13 @@ def latest_data_iter(data_size=leela_conf.DATA_SIZE):
     size = min(data_size, len(chunks))
     chunks = chunks[0: size]
     print("Found {0} latest chunks".format(size))
+    return chunks
 
+
+def chunks2batches(chunks):
     parser = ChunkParser(chunks)
     # run_test(parser)
     # benchmark(parser)
-
     dataset = tf.data.Dataset.from_generator(
         parser.parse_chunk, output_types=(tf.string))
     dataset = dataset.shuffle(65536)
@@ -277,11 +318,12 @@ def latest_data_iter(data_size=leela_conf.DATA_SIZE):
     dataset = dataset.batch(leela_conf.BATCH_SIZE)
     dataset = dataset.prefetch(16)
     iterator = dataset.make_one_shot_iterator()
-    return [iterator.get_next() for _ in range(leela_conf.GPU_NUM)]
+    return parser, [iterator.get_next() for _ in range(leela_conf.GPU_NUM)]
 
 
 def main(args):
-    next_batch = latest_data_iter()
+    chunks = latest_chunks()
+    parser, next_batch = chunks2batches(chunks)
     tfprocess = TFProcess(next_batch)
     if args:
         restore_file = args.pop(0)
@@ -289,9 +331,26 @@ def main(args):
         tfprocess.restore(restore_file)
     print("Training starts ....")
     while True:
-        change_data = tfprocess.process()
+        change_data, run_val = tfprocess.process()
         if change_data:
-            tfprocess.next_batch = latest_data_iter()
+            chunks = latest_chunks()
+            parser.chunk_switch(chunks)
+        if run_val:
+            best_net = leela_conf.SAVE_DIR + "/best.txt"
+            last_net = leela_conf.SAVE_DIR + "/latest.txt"
+            cmd = leela_conf.VALIDATION_COMMAND % \
+                (last_net,
+                 best_net)
+            print(cmd)
+            subprocess.call(cmd.split(" "), stdout=subprocess.PIPE)
+            with open(leela_conf.VALIDATION_LOG, "r") as f:
+                better = int(f.readlines()[-1].split("\t")[0])
+                if better:
+                    print("---------------- Better Network Found! --------------")
+                    copy2(last_net, best_net)
+                else:
+                    tfprocess.replace_weights(get_weights(best_net))
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])

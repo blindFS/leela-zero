@@ -42,6 +42,7 @@ public:
               const QString& firstNet,
               const QString& secondNet,
               const QString& keep,
+              const QString& playOuts,
               int expected);
     void run() override;
     void doFinish() { m_state.store(FINISHING); }
@@ -61,13 +62,16 @@ class Validation : public QObject {
     Q_OBJECT
 
 public:
-    Validation(const int gpus, const int games,
-               const QStringList& gpusList,
-               const QString& firstNet,
-               const QString& secondNet,
-               const QString& keep,
-               const QString& logFile,
-               QMutex* mutex);
+    Validation(const int gpus,
+            const int games,
+            const QString& playOuts,
+            const float sigLevel,
+            const QStringList& gpusList,
+            const QString& firstNet,
+            const QString& secondNet,
+            const QString& keep,
+            const QString& logFile,
+            QMutex* mutex);
     ~Validation() = default;
     void startGames();
     void wait();
@@ -83,12 +87,15 @@ private:
     QVector<ValidationWorker> m_gamesThreads;
     int m_games;
     int m_gpus;
+    QString m_playOuts;
+    float m_sigLevel;
     QStringList m_gpusList;
     QString m_firstNet;
     QString m_secondNet;
     QString m_keepPath;
     QString m_logFile;
-    void writeLog(bool firstBetter);
+    void writeLog(Sprt::Status status, std::tuple<int, int, int> wdl);
+    QString fileHash(QString name);
     void quitThreads();
 };
 

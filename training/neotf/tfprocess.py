@@ -21,6 +21,7 @@ import numpy as np
 import time
 import tensorflow as tf
 from config import leela_conf
+from shutil import copy2
 
 def weight_variable(shape, key):
     return tf.get_variable("%s-v" % key, shape=shape,
@@ -178,7 +179,6 @@ class TFProcess:
         for e, weights in enumerate(self.weights):
             # Keyed batchnorm weights
             if isinstance(weights, str):
-                print(weights)
                 work_weights = tf.get_default_graph().get_tensor_by_name(weights)
                 new_weight = tf.constant(new_weights[e])
                 self.session.run(tf.assign(work_weights, new_weight))
@@ -192,7 +192,6 @@ class TFProcess:
                 # [output, input, filter_size, filter_size]
                 s = weights.shape.as_list()
                 shape = [s[i] for i in [3, 2, 0, 1]]
-                print(shape)
                 new_weight = tf.constant(new_weights[e], shape=shape)
                 self.session.run(weights.assign(tf.transpose(new_weight, [2, 3, 1, 0])))
             elif weights.shape.ndims == 2:
@@ -202,12 +201,10 @@ class TFProcess:
                 #
                 s = weights.shape.as_list()
                 shape = [s[i] for i in [1, 0]]
-                print(shape)
                 new_weight = tf.constant(new_weights[e], shape=shape)
                 self.session.run(weights.assign(tf.transpose(new_weight, [1, 0])))
             else:
                 # Biases, batchnorm etc
-                print(weights.shape)
                 new_weight = tf.constant(new_weights[e], shape=weights.shape)
                 self.session.run(weights.assign(new_weight))
         #This should result in identical file to the starting one
@@ -223,6 +220,9 @@ class TFProcess:
         leela_path = path + "-" + str(steps) + ".txt"
         self.save_leelaz_weights(leela_path)
         print("Leela weights saved to {}".format(leela_path))
+        copy2(leela_path, leela_conf.SAVE_DIR + "/latest.txt")
+        if not os.path.exists(leela_conf.SAVE_DIR + "/best.txt"):
+            copy2(leela_path, leela_conf.SAVE_DIR + "/best.txt")
         return save_path
     
     def info(self, steps):
@@ -263,9 +263,13 @@ class TFProcess:
         self.test_writer.add_summary(test_summaries, steps)
         print("step {}, training accuracy={:g}%, mse={:g}".format(
             steps, sum_accuracy*100.0, sum_mse))
-        self.save(steps, os.path.join(leela_conf.SAVE_DIR, "leelaz-model"))
+        self.save(steps, os.path.join(leela_conf.SAVE_DIR, leela_conf.SAVE_PREFIX))
 
     def process(self):
+        # Return values
+        change_data = False
+        run_val = False
+
         # Run training for this batch
         policy_loss, mse_loss, reg_term, _, _ = self.session.run(
             [self.policy_loss, self.mse_loss, self.reg_term, self.train_op,
@@ -285,8 +289,11 @@ class TFProcess:
         # Ideally this would use a seperate dataset and so on...
         if steps % leela_conf.EVAL_STEP_INTERVAL == 0:
             self.eval(steps)
-            return True
-        return False
+        if steps % leela_conf.DATACHANGE_STEP_INTERVAL== 0:
+            change_data = True
+        if steps % leela_conf.VALIDATION_STEP_INTERVAL == 0:
+            run_val = True
+        return change_data, run_val
 
     def save_leelaz_weights(self, filename):
         with open(filename, "w") as file:

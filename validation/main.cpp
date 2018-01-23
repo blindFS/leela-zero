@@ -53,6 +53,14 @@ int main(int argc, char *argv[]) {
         {"g", "gamesNum"},
             "Play 'gamesNum' games on one GPU at the same time.",
             "num", "1");
+    QCommandLineOption playOutsOption(
+        {"p", "playouts"},
+            "Argument passed to leelaz (-p), defaults to 1600",
+            "string", "1600");
+    QCommandLineOption sigLevelOption(
+        {"t", "siglevel"},
+            "Significance level, defaults to 0.05",
+            "num", "0.05");
     QCommandLineOption gpusOption(
         {"u", "gpus"},
             "Index of the GPU to use for multiple GPUs support.",
@@ -68,6 +76,8 @@ int main(int argc, char *argv[]) {
 
     parser.addOption(gamesNumOption);
     parser.addOption(gpusOption);
+    parser.addOption(playOutsOption);
+    parser.addOption(sigLevelOption);
     parser.addOption(networkOption);
     parser.addOption(keepSgfOption);
     parser.addOption(logOption);
@@ -79,6 +89,8 @@ int main(int argc, char *argv[]) {
         parser.showHelp();
     }
     int gamesNum = parser.value(gamesNumOption).toInt();
+    QString playOuts = parser.value(playOutsOption);
+    float sigLevel = parser.value(sigLevelOption).toFloat();
     QStringList gpusList = parser.values(gpusOption);
     int gpusNum = gpusList.count();
     if (gpusNum == 0) {
@@ -97,7 +109,8 @@ int main(int argc, char *argv[]) {
         }
     }
     QMutex mutex;
-    Validation validate(gpusNum, gamesNum, gpusList,
+    Validation validate(gpusNum, gamesNum,
+                        playOuts, sigLevel, gpusList,
                         netList.at(0), netList.at(1),
                         parser.value(keepSgfOption),
                         parser.value(logOption), &mutex);
