@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import os
 import subprocess
@@ -9,6 +10,9 @@ from config import leela_conf
 
 upload_dir = leela_conf.DATA_DIR
 download_dir = leela_conf.SAVE_DIR
+
+os.makedirs(upload_dir, exist_ok=True)
+os.makedirs(download_dir, exist_ok=True)
 
 app = Flask(__name__)
 
@@ -85,4 +89,5 @@ def upload_match():
     return jsonify("No need any more!")
 
 if __name__ == '__main__':
+    #  app.run(host='0.0.0.0', port=5000)
     app.run()

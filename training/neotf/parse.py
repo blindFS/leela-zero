@@ -342,13 +342,14 @@ def main(args):
                 (last_net,
                  best_net)
             print(cmd)
-            subprocess.call(cmd.split(" "), stdout=subprocess.PIPE)
+            subprocess.call(cmd.split(" ")) #, stdout=subprocess.PIPE)
             with open(leela_conf.VALIDATION_LOG, "r") as f:
                 better = int(f.readlines()[-1].split("\t")[0])
                 if better:
                     print("---------------- Better Network Found! --------------")
                     copy2(last_net, best_net)
                 else:
+                    print("------------- Checkout best net so far. -------------")
                     tfprocess.replace_weights(get_weights(best_net))
 
 
