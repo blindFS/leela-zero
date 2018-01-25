@@ -1,6 +1,6 @@
 class leela_conf:
     GPU_NUM = 2
-    LR = 0.02
+    LR = 0.001
     RESIDUAL_FILTERS = 128
     RESIDUAL_BLOCKS = 6
     BATCH_SIZE = 256

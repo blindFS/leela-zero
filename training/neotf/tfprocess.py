@@ -90,6 +90,7 @@ class TFProcess:
             #  opt_op = tf.train.MomentumOptimizer(
                 #  learning_rate=leela_conf.LR, momentum=0.9, use_nesterov=True)
             opt_op = tf.train.GradientDescentOptimizer(leela_conf.LR)
+            #  opt_op = tf.train.AdamOptimizer(learning_rate=leela_conf.LR)
 
             tower_grads = []
             accuracies = []

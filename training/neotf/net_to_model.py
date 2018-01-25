@@ -35,7 +35,8 @@ if __name__ == '__main__':
     ] for _ in range(gpu_num)]
 
     tfprocess = TFProcess(x)
-    tfprocess.replace_weights(get_weights(sys.argv[1]))
+    tfprocess.save_leelaz_weights("./save/random.txt")
     path = os.path.join(leela_conf.SAVE_DIR, "leelaz-model")
+    tfprocess.replace_weights(get_weights(sys.argv[1]))
     print("saved to: ", path)
-    save_path = tfprocess.saver.save(tfprocess.session, path, global_step=0)
+    save_path = tfprocess.save(0, path)
